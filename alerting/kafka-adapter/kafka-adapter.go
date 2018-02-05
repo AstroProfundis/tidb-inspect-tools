@@ -23,25 +23,12 @@ var (
 	logLevel     = flag.String("log-level", "info", "log level: debug, info, warn, error, fatal")
 )
 
-//KafkaMsg represent kafka msg
-type KafkaMsg struct {
-	Title       string `json:"title"`
-	Source      string `json:"source"`
-	Node        string `json:"node"`
-	Expr        string `json:"expr"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Level       string `json:"level"`
-	Note        string `json:"note"`
-	Value       string `json:"value"`
-	Time        string `json:"time"`
-}
-
 //Run represent runtime informations
 type Run struct {
-	Rdr         *render.Render
-	AlertMsgs   chan *AlertData
-	KafkaClient sarama.SyncProducer
+	Rdr              *render.Render
+	AlertMsgs        chan *AlertMsg
+	GrafanaAlertMsgs chan *GrafanaAlertMsg
+	KafkaClient      sarama.SyncProducer
 }
 
 func checkParams() error {
@@ -68,7 +55,13 @@ func (r *Run) Scheduler() {
 		lenAlertMsgs := len(r.AlertMsgs)
 		if lenAlertMsgs > 0 {
 			for i := 0; i < lenAlertMsgs; i++ {
-				r.TransferData(<-r.AlertMsgs)
+				r.TransferMsg(<-r.AlertMsgs)
+			}
+		}
+		lenGrafanaMsgs := len(r.GrafanaAlertMsgs)
+		if lenGrafanaMsgs > 0 {
+			for i := 0; i < lenGrafanaMsgs; i++ {
+				r.TransferGrafanaMsg(<-r.GrafanaAlertMsgs)
 			}
 		}
 		time.Sleep(3 * time.Second)
@@ -87,7 +80,8 @@ func main() {
 	}
 
 	r := &Run{
-		AlertMsgs: make(chan *AlertData, 1000),
+		AlertMsgs:        make(chan *AlertMsg, 1000),
+		GrafanaAlertMsgs: make(chan *GrafanaAlertMsg, 1000),
 	}
 	if err := r.CreateKafkaProduce(); err != nil {
 		log.Errorf("create kafka produce error %v", err)

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/gorilla/mux"
+	//galerting "github.com/grafana/grafana/pkg/services/alerting"
 	"github.com/ngaut/log"
 	"github.com/unrolled/render"
 	"io/ioutil"
@@ -10,8 +11,8 @@ import (
 	"time"
 )
 
-// AlertData alertmanager base struct
-type AlertData struct {
+//AlertMsg alertmanager base struct
+type AlertMsg struct {
 	Receiver          string `json:"receiver"`
 	Status            string `json:"status"`
 	Alerts            Alerts `json:"alerts"`
@@ -47,15 +48,58 @@ func (r *Run) AlertMsgFromWebhook(w http.ResponseWriter, hr *http.Request) {
 	}
 	log.Debugf("get alert data b %v", string(b))
 	defer hr.Body.Close()
-	alertData := &AlertData{}
-	err = json.Unmarshal(b, alertData)
+	alertMsg := &AlertMsg{}
+	err = json.Unmarshal(b, alertMsg)
 	if err != nil {
 		log.Errorf("can not unmarshal http post data with error %v", err)
 		r.Rdr.Text(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	log.Debugf("get alert data %v", alertData)
-	r.AlertMsgs <- alertData
+	log.Debugf("get alert data %v", alertMsg)
+	r.AlertMsgs <- alertMsg
+	r.Rdr.Text(w, http.StatusAccepted, "")
+}
+
+//GrafanaAlertMsg grafana alert message
+type GrafanaAlertMsg struct {
+	Title       string `json:"title"`
+	RuleID      string `json:"ruleId"`
+	RuleName    string `json:"ruleName"`
+	State       string `json:"state"`
+	RuleURL     string `json:"ruleUrl"`
+	ImageURL    string `json:"imageUrl"`
+	Message     string `json:"message"`
+	EvalMatches Matchs `json:"evalMatches"`
+}
+
+//Matchs all of match
+type Matchs []Match
+
+//Match grafana alert detail
+type Match struct {
+	Value  float64 `json:"value"`
+	Metric string  `json:"metric"`
+	Tags   KV      `json:"tags"`
+}
+
+//AlertMsgFormGrafana get alert message from grafana
+func (r *Run) AlertMsgFormGrafana(w http.ResponseWriter, hr *http.Request) {
+	b, err := ioutil.ReadAll(hr.Body)
+	if err != nil {
+		log.Errorf("can not read grafana http post data with error %v", err)
+		r.Rdr.Text(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	log.Debugf("get alert data grafana %v", string(b))
+	defer hr.Body.Close()
+	gAlertMsg := &GrafanaAlertMsg{}
+	err = json.Unmarshal(b, gAlertMsg)
+	if err != nil {
+		log.Errorf("can not unmarshal grafana http post data with error %v", err)
+		r.Rdr.Text(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	r.GrafanaAlertMsgs <- gAlertMsg
 	r.Rdr.Text(w, http.StatusAccepted, "")
 }
 
@@ -63,6 +107,7 @@ func (r *Run) AlertMsgFromWebhook(w http.ResponseWriter, hr *http.Request) {
 func (r *Run) CreateRouter() *mux.Router {
 	m := mux.NewRouter()
 	m.HandleFunc("/v1/alertmanager", r.AlertMsgFromWebhook).Methods("POST")
+	m.HandleFunc("/v1/grafana", r.AlertMsgFromWebhook).Methods("POST")
 
 	return m
 }

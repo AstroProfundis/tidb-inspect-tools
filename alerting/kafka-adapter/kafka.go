@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/Shopify/sarama"
 	"github.com/ngaut/log"
+	"strconv"
 	"strings"
 )
 
@@ -34,9 +35,23 @@ func (r *Run) PushKafkaMsg(msg string) error {
 	return err
 }
 
-//TransferData transfer alert to kafka string
-func (r *Run) TransferData(ad *AlertData) {
-	for _, at := range ad.Alerts {
+//KafkaMsg represent kafka msg
+type KafkaMsg struct {
+	Title       string `json:"title"`
+	Source      string `json:"source"`
+	Node        string `json:"node"`
+	Expr        string `json:"expr"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Level       string `json:"level"`
+	Note        string `json:"note"`
+	Value       string `json:"value"`
+	Time        string `json:"time"`
+}
+
+//TransferMsg transfer alert to kafka string
+func (r *Run) TransferMsg(am *AlertMsg) {
+	for _, at := range am.Alerts {
 		kafkaMsg := &KafkaMsg{
 			Title:       getValue(at.Labels, "alertname"),
 			Description: getValue(at.Annotations, "description"),
@@ -66,4 +81,51 @@ func getValue(kv KV, key string) string {
 		return val
 	}
 	return ""
+}
+
+//GrafanaKafkaMsg grafana messge to kafka
+type GrafanaKafkaMsg struct {
+	Title    string           `json:"title"`
+	Match    []SendKafkaMatch `json:"match"`
+	Message  string           `json:"message"`
+	URL      string           `json:"url"`
+	ImageURL string           `json:"image_url"`
+	Status   string           `json:"status"`
+	Note     string           `json:"note"`
+}
+
+//SendKafkaMatch grafana match instance
+type SendKafkaMatch struct {
+	Instance string `json:"instance"`
+	Value    string `json:"string"`
+}
+
+//TransferGrafanaMsg grafana message to kafka
+func (r *Run) TransferGrafanaMsg(gam *GrafanaAlertMsg) {
+	skm := []SendKafkaMatch{}
+	for _, evalM := range gam.EvalMatches {
+		m := SendKafkaMatch{
+			Instance: getValue(evalM.Tags, "instance"),
+			Value:    strconv.FormatFloat(evalM.Value, 'f', 9, 64),
+		}
+		skm = append(skm, m)
+	}
+	grafanaMsg := &GrafanaKafkaMsg{
+		Title:    gam.Title,
+		Message:  gam.Message,
+		URL:      gam.RuleURL,
+		ImageURL: gam.ImageURL,
+		Status:   gam.State,
+		Match:    skm,
+	}
+
+	atByte, err := json.Marshal(grafanaMsg)
+	if err != nil {
+		log.Errorf("can not marshal grafanaMsg data with error %v", err)
+		return
+	}
+
+	if err := r.PushKafkaMsg(string(atByte)); err != nil {
+		log.Errorf("push message to grafana mesg error %v", err)
+	}
 }
